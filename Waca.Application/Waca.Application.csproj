@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Waca.Domain\Waca.Domain.csproj" />
-    <ProjectReference Include="..\Waca.Infrastructure\Waca.Infrastructure.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
