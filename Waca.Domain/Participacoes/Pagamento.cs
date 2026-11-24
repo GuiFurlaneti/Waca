@@ -7,8 +7,8 @@ namespace Waca.Domain.Participacoes;
 /// </summary>
 /// <remarks>
 /// <para>
-/// O construtor e as transições são <c>internal</c>: código de fora do assembly <c>Waca.Domain</c>
-/// (Application, API, testes) só cria e altera pagamentos por meio de <see cref="Participacao"/>.
+/// O construtor, a reconstituição e as transições são <c>internal</c>: código de fora do assembly
+/// <c>Waca.Domain</c> (Application, API, testes) só cria e altera pagamentos por meio de <see cref="Participacao"/>.
 /// </para>
 /// <para>
 /// <c>internal</c> restringe o acesso ao assembly, não à classe <see cref="Participacao"/>: outro tipo do
@@ -59,6 +59,68 @@ public sealed class Pagamento
     /// <summary>Justificativa da rejeição, sem espaços nas extremidades; nula nos demais estados.</summary>
     public string? Justificativa { get; private set; }
 
+    /// <summary>
+    /// Recria um pagamento já registrado, usado por <see cref="Participacao.Reconstituir"/>.
+    /// </summary>
+    /// <remarks>
+    /// Não é uma nova operação: reaplica, com os dados informados, as mesmas validações da declaração
+    /// e da decisão. Pendente não pode ter dados de decisão; confirmado exige decisor e instante e não
+    /// pode ter justificativa; rejeitado exige decisor, instante e justificativa sem espaços nas
+    /// extremidades (forma em que o domínio a grava). Nenhuma ordem entre instantes é exigida.
+    /// </remarks>
+    /// <exception cref="ArgumentException">Qualquer dado ausente, vazio ou incompatível com o estado.</exception>
+    internal static Pagamento Reconstituir(EstadoPagamento estado)
+    {
+        ArgumentNullException.ThrowIfNull(estado);
+        if (!Enum.IsDefined(estado.Status))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(estado), estado.Status, $"O pagamento {estado.Id} está em um estado não reconhecido.");
+        }
+
+        var pagamento = new Pagamento(estado.Id, estado.Valor, estado.DeclaradoPor, estado.DeclaradoEm);
+
+        switch (estado.Status)
+        {
+            case StatusPagamento.AguardandoConfirmacao:
+                if (estado.DecididoPor is not null || estado.DecididoEm is not null || estado.Justificativa is not null)
+                {
+                    throw new ArgumentException(
+                        $"O pagamento {estado.Id} aguarda confirmação e não pode ter dados de decisão.", nameof(estado));
+                }
+
+                break;
+
+            case StatusPagamento.Confirmado:
+                if (estado.Justificativa is not null)
+                {
+                    throw new ArgumentException(
+                        $"O pagamento {estado.Id} está confirmado e não pode ter justificativa.", nameof(estado));
+                }
+
+                pagamento.Confirmar(ExigirDecisor(estado), ExigirInstanteDecisao(estado));
+                break;
+
+            case StatusPagamento.Rejeitado:
+                if (string.IsNullOrWhiteSpace(estado.Justificativa))
+                {
+                    throw new ArgumentException(
+                        $"O pagamento {estado.Id} está rejeitado e não tem justificativa.", nameof(estado));
+                }
+
+                if (estado.Justificativa != estado.Justificativa.Trim())
+                {
+                    throw new ArgumentException(
+                        $"A justificativa do pagamento {estado.Id} tem espaços nas extremidades.", nameof(estado));
+                }
+
+                pagamento.Rejeitar(ExigirDecisor(estado), estado.Justificativa, ExigirInstanteDecisao(estado));
+                break;
+        }
+
+        return pagamento;
+    }
+
     internal void Confirmar(Guid decididoPor, DateTimeOffset decididoEm)
     {
         ExigirId(decididoPor, nameof(decididoPor));
@@ -95,6 +157,14 @@ public sealed class Pagamento
                 $"O pagamento {Id} está {Status} e não pode ser {acao}; apenas pagamentos aguardando confirmação podem.");
         }
     }
+
+    private static Guid ExigirDecisor(EstadoPagamento estado) =>
+        estado.DecididoPor ?? throw new ArgumentException(
+            $"O pagamento {estado.Id} está {estado.Status} e não informa quem decidiu.", nameof(estado));
+
+    private static DateTimeOffset ExigirInstanteDecisao(EstadoPagamento estado) =>
+        estado.DecididoEm ?? throw new ArgumentException(
+            $"O pagamento {estado.Id} está {estado.Status} e não informa quando foi decidido.", nameof(estado));
 
     private static void ExigirId(Guid id, string parametro)
     {
