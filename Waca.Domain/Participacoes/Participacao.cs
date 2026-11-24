@@ -24,6 +24,7 @@ namespace Waca.Domain.Participacoes;
 public sealed class Participacao
 {
     private readonly List<Pagamento> _pagamentos = [];
+    private readonly List<AlteracaoCota> _alteracoesCota = [];
 
     public Participacao(Guid id, Guid vaquinhaId, Guid participanteId, ValorMonetario cota)
     {
@@ -40,6 +41,7 @@ public sealed class Participacao
         ParticipanteId = participanteId;
         Cota = cota;
         Pagamentos = _pagamentos.AsReadOnly();
+        AlteracoesCota = _alteracoesCota.AsReadOnly();
     }
 
     public Guid Id { get; }
@@ -48,7 +50,8 @@ public sealed class Participacao
 
     public Guid ParticipanteId { get; }
 
-    public ValorMonetario Cota { get; }
+    /// <summary>Cota atual; só muda por <see cref="AlterarCota"/>.</summary>
+    public ValorMonetario Cota { get; private set; }
 
     /// <summary>
     /// Todos os pagamentos declarados, inclusive os rejeitados, na ordem de declaração.
@@ -58,6 +61,16 @@ public sealed class Participacao
     /// converter para <see cref="IList{T}"/> ou <see cref="ICollection{T}"/> não permite alterá-la.
     /// </remarks>
     public IReadOnlyList<Pagamento> Pagamentos { get; }
+
+    /// <summary>
+    /// Alterações efetivas da cota, na ordem em que foram registradas.
+    /// </summary>
+    /// <remarks>
+    /// É uma <see cref="System.Collections.ObjectModel.ReadOnlyCollection{T}"/> sobre a lista interna:
+    /// converter para <see cref="IList{T}"/> ou <see cref="ICollection{T}"/> não permite alterá-la.
+    /// A cota inicial, definida na criação, não gera registro.
+    /// </remarks>
+    public IReadOnlyList<AlteracaoCota> AlteracoesCota { get; }
 
     /// <summary>Soma dos pagamentos confirmados (arrecadado).</summary>
     public ValorMonetario Confirmado => SomarPorStatus(StatusPagamento.Confirmado);
@@ -116,6 +129,65 @@ public sealed class Participacao
     /// <exception cref="InvalidOperationException">Pagamento inexistente ou fora do estado aguardando confirmação.</exception>
     public void RejeitarPagamento(Guid pagamentoId, Guid decididoPor, string justificativa, DateTimeOffset decididoEm) =>
         ObterPagamento(pagamentoId).Rejeitar(decididoPor, justificativa, decididoEm);
+
+    /// <summary>
+    /// Altera a cota, registrando a mudança no histórico. Pagamentos não são modificados.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Todas as condições são verificadas antes de qualquer alteração: argumentos, identificador
+    /// não utilizado, e nova cota maior ou igual ao Comprometido. Só então o registro é criado e,
+    /// em seguida, o histórico e a cota são atualizados como uma única alteração lógica.
+    /// </para>
+    /// <para>
+    /// Se a nova cota for igual à atual (depois de todas as validações), nada muda: a cota permanece,
+    /// nenhum registro é criado, o identificador informado não é consumido e o método retorna <c>false</c>.
+    /// </para>
+    /// <para>
+    /// Receber <paramref name="alteradoPor"/> não significa que o ator está autorizado; isso cabe à Application.
+    /// </para>
+    /// </remarks>
+    /// <returns><c>true</c> se a cota mudou e o histórico recebeu um registro; <c>false</c> se o valor já era o atual.</returns>
+    /// <exception cref="ArgumentException">Identificador vazio ou instante não informado.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Nova cota igual a zero.</exception>
+    /// <exception cref="InvalidOperationException">Identificador já usado ou nova cota abaixo do Comprometido.</exception>
+    public bool AlterarCota(Guid alteracaoId, ValorMonetario novaCota, Guid alteradoPor, DateTimeOffset alteradoEm)
+    {
+        ExigirId(alteracaoId, nameof(alteracaoId));
+        if (novaCota == ValorMonetario.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(novaCota), novaCota, "A cota deve ser maior que zero.");
+        }
+
+        ExigirId(alteradoPor, nameof(alteradoPor));
+        if (alteradoEm == default)
+        {
+            throw new ArgumentException("O instante não foi informado.", nameof(alteradoEm));
+        }
+
+        if (_alteracoesCota.Exists(a => a.Id == alteracaoId))
+        {
+            throw new InvalidOperationException($"Já existe uma alteração de cota com o identificador {alteracaoId} nesta participação.");
+        }
+
+        if (novaCota == Cota)
+        {
+            return false;
+        }
+
+        var comprometido = Comprometido;
+        if (novaCota.Valor < comprometido.Valor)
+        {
+            throw new InvalidOperationException(
+                $"A nova cota de {novaCota} é menor que o valor comprometido de {comprometido} nesta participação.");
+        }
+
+        var alteracao = new AlteracaoCota(alteracaoId, Cota, novaCota, alteradoPor, alteradoEm);
+
+        _alteracoesCota.Add(alteracao);
+        Cota = novaCota;
+        return true;
+    }
 
     private Pagamento ObterPagamento(Guid pagamentoId)
     {
