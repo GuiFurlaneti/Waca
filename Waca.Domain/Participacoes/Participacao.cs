@@ -44,6 +44,59 @@ public sealed class Participacao
         AlteracoesCota = _alteracoesCota.AsReadOnly();
     }
 
+    /// <summary>
+    /// Reconstitui uma participação já registrada, com seus pagamentos e seu histórico de cota.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Não é uma nova operação financeira: nenhum identificador, instante, pagamento, decisão ou
+    /// alteração de cota é gerado. Os registros são mantidos na ordem recebida, e os totais são
+    /// sempre calculados a partir dos pagamentos.
+    /// </para>
+    /// <para>
+    /// Todos os dados são validados antes de a participação ser devolvida; qualquer inconsistência gera
+    /// exceção e nenhuma participação é devolvida. São exigidos: identificadores preenchidos, cota
+    /// positiva, pagamentos válidos para o próprio estado, identificadores únicos em cada coleção,
+    /// <c>Confirmado + Pendente ≤ Cota</c>, alterações de cota efetivas encadeadas
+    /// (o valor anterior de cada uma é o novo valor da precedente) e a última terminando na cota atual.
+    /// O valor anterior da primeira alteração é a cota inicial, que não é registrada à parte.
+    /// Nenhuma ordem entre instantes é exigida.
+    /// </para>
+    /// <para>
+    /// As coleções informadas são lidas uma única vez e copiadas: alterá-las depois não afeta a participação.
+    /// Instantes são convertidos para UTC, preservando o mesmo momento.
+    /// </para>
+    /// <para>
+    /// Inconsistência nos dados informados gera <see cref="ArgumentException"/> (ou derivada),
+    /// inclusive as que, numa operação normal, gerariam <see cref="InvalidOperationException"/>.
+    /// Problema em um item de coleção é informado com o nome da coleção em
+    /// <see cref="ArgumentException.ParamName"/>, a posição do item na mensagem e a causa original,
+    /// quando houver, em <see cref="Exception.InnerException"/>.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">Coleção nula.</exception>
+    /// <exception cref="ArgumentException">Qualquer dado ausente, inválido ou inconsistente.</exception>
+    public static Participacao Reconstituir(
+        Guid id,
+        Guid vaquinhaId,
+        Guid participanteId,
+        ValorMonetario cota,
+        IEnumerable<EstadoPagamento> pagamentos,
+        IEnumerable<EstadoAlteracaoCota> alteracoesCota)
+    {
+        ArgumentNullException.ThrowIfNull(pagamentos);
+        ArgumentNullException.ThrowIfNull(alteracoesCota);
+
+        var participacao = new Participacao(id, vaquinhaId, participanteId, cota);
+        var pagamentosReconstituidos = ReconstituirPagamentos(pagamentos);
+        var alteracoesReconstituidas = ReconstituirAlteracoesCota(alteracoesCota, cota);
+        ExigirComprometidoDentroDaCota(pagamentosReconstituidos, cota);
+
+        participacao._pagamentos.AddRange(pagamentosReconstituidos);
+        participacao._alteracoesCota.AddRange(alteracoesReconstituidas);
+        return participacao;
+    }
+
     public Guid Id { get; }
 
     public Guid VaquinhaId { get; }
@@ -187,6 +240,109 @@ public sealed class Participacao
         _alteracoesCota.Add(alteracao);
         Cota = novaCota;
         return true;
+    }
+
+    private static List<Pagamento> ReconstituirPagamentos(IEnumerable<EstadoPagamento> pagamentos)
+    {
+        var reconstituidos = new List<Pagamento>();
+        foreach (var estado in pagamentos)
+        {
+            var posicao = reconstituidos.Count;
+            if (estado is null)
+            {
+                throw new ArgumentException($"O pagamento na posição {posicao} é nulo.", nameof(pagamentos));
+            }
+
+            Pagamento pagamento;
+            try
+            {
+                pagamento = Pagamento.Reconstituir(estado);
+            }
+            catch (ArgumentException excecao)
+            {
+                throw new ArgumentException(
+                    $"O pagamento na posição {posicao} é inválido: {excecao.Message}", nameof(pagamentos), excecao);
+            }
+
+            if (reconstituidos.Exists(p => p.Id == pagamento.Id))
+            {
+                throw new ArgumentException(
+                    $"O identificador de pagamento {pagamento.Id} aparece mais de uma vez.", nameof(pagamentos));
+            }
+
+            reconstituidos.Add(pagamento);
+        }
+
+        return reconstituidos;
+    }
+
+    private static List<AlteracaoCota> ReconstituirAlteracoesCota(IEnumerable<EstadoAlteracaoCota> alteracoesCota, ValorMonetario cota)
+    {
+        var reconstituidas = new List<AlteracaoCota>();
+        foreach (var estado in alteracoesCota)
+        {
+            var posicao = reconstituidas.Count;
+            if (estado is null)
+            {
+                throw new ArgumentException($"A alteração de cota na posição {posicao} é nula.", nameof(alteracoesCota));
+            }
+
+            AlteracaoCota alteracao;
+            try
+            {
+                alteracao = new AlteracaoCota(
+                    estado.Id, estado.ValorAnterior, estado.NovoValor, estado.AlteradoPor, estado.AlteradoEm);
+            }
+            catch (ArgumentException excecao)
+            {
+                throw new ArgumentException(
+                    $"A alteração de cota na posição {posicao} é inválida: {excecao.Message}", nameof(alteracoesCota), excecao);
+            }
+
+            if (reconstituidas.Exists(a => a.Id == alteracao.Id))
+            {
+                throw new ArgumentException(
+                    $"O identificador de alteração de cota {alteracao.Id} aparece mais de uma vez.", nameof(alteracoesCota));
+            }
+
+            if (posicao > 0 && alteracao.ValorAnterior != reconstituidas[^1].NovoValor)
+            {
+                throw new ArgumentException(
+                    $"A alteração de cota na posição {posicao} parte de {alteracao.ValorAnterior}, mas a anterior terminou em {reconstituidas[^1].NovoValor}.",
+                    nameof(alteracoesCota));
+            }
+
+            reconstituidas.Add(alteracao);
+        }
+
+        if (reconstituidas.Count > 0 && reconstituidas[^1].NovoValor != cota)
+        {
+            throw new ArgumentException(
+                $"A última alteração de cota termina em {reconstituidas[^1].NovoValor}, diferente da cota atual de {cota}.",
+                nameof(alteracoesCota));
+        }
+
+        return reconstituidas;
+    }
+
+    private static void ExigirComprometidoDentroDaCota(List<Pagamento> pagamentos, ValorMonetario cota)
+    {
+        var comprometido = ValorMonetario.Zero;
+        foreach (var pagamento in pagamentos)
+        {
+            if (pagamento.Status == StatusPagamento.Rejeitado)
+            {
+                continue;
+            }
+
+            if (pagamento.Valor.Valor > cota.Valor - comprometido.Valor)
+            {
+                throw new ArgumentException(
+                    $"Os pagamentos confirmados e pendentes excedem a cota de {cota}.", nameof(pagamentos));
+            }
+
+            comprometido += pagamento.Valor;
+        }
     }
 
     private Pagamento ObterPagamento(Guid pagamentoId)
