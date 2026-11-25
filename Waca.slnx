@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="Waca.Api/Waca.Api.csproj" />
   <Project Path="Waca.Application/Waca.Application.csproj" />
+  <Project Path="Waca.Application.Tests/Waca.Application.Tests.csproj" />
   <Project Path="Waca.Domain.Tests/Waca.Domain.Tests.csproj" />
   <Project Path="Waca.Domain/Waca.Domain.csproj" />
   <Project Path="Waca.Infrastructure/Waca.Infrastructure.csproj" />
