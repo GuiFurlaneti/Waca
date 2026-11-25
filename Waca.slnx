@@ -5,4 +5,5 @@
   <Project Path="Waca.Domain.Tests/Waca.Domain.Tests.csproj" />
   <Project Path="Waca.Domain/Waca.Domain.csproj" />
   <Project Path="Waca.Infrastructure/Waca.Infrastructure.csproj" />
+  <Project Path="Waca.Infrastructure.Tests/Waca.Infrastructure.Tests.csproj" />
 </Solution>
