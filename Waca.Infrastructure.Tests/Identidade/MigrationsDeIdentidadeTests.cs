@@ -91,7 +91,13 @@ public class MigrationsDeIdentidadeTests(ServidorPostgres servidor)
         await banco.AplicarMigrationsDeIdentidadeAsync();
 
         Assert.Equal(antes, await DescreverSchemaAsync(banco, "identidade"));
-        Assert.Equal(1, await banco.ContarAsync("SELECT count(*) FROM identidade.\"__EFMigrationsHistory\""));
+
+        await using var contexto = banco.CriarContextoDeIdentidade();
+
+        Assert.Equal(
+            contexto.Database.GetMigrations().Count(),
+            await banco.ContarAsync(
+                "SELECT count(*) FROM identidade.\"__EFMigrationsHistory\""));
     }
 
     [Fact]
