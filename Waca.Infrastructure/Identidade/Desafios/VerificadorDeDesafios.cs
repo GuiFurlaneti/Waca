@@ -116,13 +116,16 @@ public sealed class VerificadorDeDesafios
             throw new InvalidOperationException("A verificação de desafio exige uma transação aberta pelo chamador.");
         }
 
-        var agora = _relogio.GetUtcNow();
         var id = pedido.DesafioId;
 
         var linhas = await contexto.DesafiosDeAcesso
             .FromSql($"SELECT * FROM identidade.desafios_acesso WHERE id = {id} FOR UPDATE")
             .AsNoTracking()
             .ToListAsync(cancellationToken);
+
+        // Lido só depois de obter o bloqueio da linha: um código que vence enquanto a verificação espera outra
+        // transação é recusado. O mesmo valor é usado na decisão e nos UPDATEs de tentativa e de consumo.
+        var agora = _relogio.GetUtcNow();
 
         if (linhas.Count == 0)
         {
