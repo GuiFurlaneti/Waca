@@ -54,7 +54,16 @@ public class MigrationsDeIdentidadeTests(ServidorPostgres servidor)
         await banco.AplicarMigrationsDeIdentidadeAsync();
 
         Assert.Equal(0, await banco.ContarAsync(
-            "SELECT count(*) FROM information_schema.tables WHERE table_name ILIKE '%role%' OR table_name ILIKE '%passkey%'"));
+            """
+            SELECT count(*)
+            FROM information_schema.tables
+            WHERE table_schema = 'identidade'
+              AND table_type = 'BASE TABLE'
+              AND (
+                  table_name ILIKE '%role%'
+                  OR table_name ILIKE '%passkey%'
+              )
+            """));
     }
 
     [Fact]
