@@ -96,7 +96,6 @@ public sealed class EmissorDeDesafios
             return new ResultadoDaEmissao(SituacaoDaEmissao.EntradaInvalida, null, null, null);
         }
 
-        var agora = _relogio.GetUtcNow();
         var codigo = GeradorDeCodigo.Gerar(_opcoes.DigitosDoCodigo);
         DesafioDeAcessoRegistro registro;
 
@@ -107,6 +106,10 @@ public sealed class EmissorDeDesafios
             await contexto.Database.ExecuteSqlAsync(
                 $"SELECT pg_advisory_xact_lock(hashtextextended({chaveDoBloqueio}, 0))",
                 cancellationToken);
+
+            // Lido só depois de obter o bloqueio: a espera por outra emissão não pode produzir um horário
+            // anterior ao do desafio que ela gravou (cotas, criação, expiração e invalidação usam este valor).
+            var agora = _relogio.GetUtcNow();
 
             var limite = await VerificarCotaAsync(contexto, solicitacao.Finalidade, emailNormalizado, agora, cancellationToken);
             if (limite is not null)

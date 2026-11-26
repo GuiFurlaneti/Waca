@@ -265,6 +265,70 @@ public class EmissaoDeDesafiosTests(ServidorPostgres servidor)
     }
 
     [Fact]
+    public async Task Emissao_que_aguarda_o_bloqueio_consultivo_usa_o_horario_posterior_a_aquisicao()
+    {
+        await using var banco = await servidor.CriarBancoComIdentidadeAsync();
+        var ambiente = new AmbienteDeDesafios(banco);
+
+        // Transação A, em conexão própria, retém o bloqueio consultivo do destinatário e da finalidade.
+        // A chave reproduz o formato usado por EmissorDeDesafios.
+        await using var conexaoA = new NpgsqlConnection(banco.ConnectionString);
+        await conexaoA.OpenAsync(Ct);
+        var transacaoA = await conexaoA.BeginTransactionAsync(Ct);
+        Task<(ResultadoDaEmissao Resultado, string Codigo)>? emissao = null;
+        try
+        {
+            await using (var bloqueio = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended(@chave, 0))", conexaoA, transacaoA))
+            {
+                bloqueio.Parameters.AddWithValue("chave", $"waca:desafio:Acesso:{EmailNormalizado}");
+                await bloqueio.ExecuteNonQueryAsync(Ct);
+            }
+
+            emissao = ambiente.EmitirAsync(Email);
+
+            // A emissão fica observavelmente parada no bloqueio consultivo, em outra conexão.
+            await EsperarAteAsync(async () => await banco.ContarAsync(
+                $"""
+                SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+                WHERE l.locktype = 'advisory' AND NOT l.granted
+                  AND a.datname = current_database() AND l.pid <> {conexaoA.ProcessID}
+                """) == 1);
+            Assert.False(emissao.IsCompleted);
+
+            ambiente.Relogio.Avancar(TimeSpan.FromMinutes(5));
+            await transacaoA.RollbackAsync(Ct);
+
+            var (resultado, codigo) = await emissao.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+
+            var esperado = RelogioDeTeste.Inicio.AddMinutes(5);
+            Assert.Equal(SituacaoDaEmissao.Emitido, resultado.Situacao);
+            Assert.Equal(esperado.AddMinutes(10), resultado.ExpiraEm);
+            var estado = (await ambiente.LerAsync(resultado.DesafioId))!;
+            Assert.Equal(esperado, estado.CriadoEm);
+            Assert.Equal(esperado.AddMinutes(10), estado.ExpiraEm);
+            Assert.True(GeradorDeCodigo.TemFormatoValido(codigo, 8));
+        }
+        finally
+        {
+            // Libera o bloqueio em qualquer caso e espera a emissão terminar, com limite.
+            await transacaoA.DisposeAsync();
+            if (emissao is not null)
+            {
+                await Task.WhenAny(emissao, Task.Delay(TimeSpan.FromSeconds(30), CancellationToken.None));
+            }
+        }
+
+        // As cotas partem do horário efetivo da emissão.
+        ambiente.Relogio.Avancar(TimeSpan.FromSeconds(59));
+        Assert.Equal(LimiteDeEmissao.IntervaloMinimo, (await ambiente.EmitirAsync(Email)).Resultado.Limite);
+        ambiente.Relogio.Avancar(TimeSpan.FromSeconds(1));
+        var seguinte = await ambiente.EmitirAsync(Email);
+        Assert.Equal(SituacaoDaEmissao.Emitido, seguinte.Resultado.Situacao);
+        Assert.Equal(2, await ambiente.ContarDesafiosAsync());
+        Assert.Equal(1, await ambiente.ContarDesafiosAsync("consumido_em IS NULL AND invalidado_em IS NULL"));
+    }
+
+    [Fact]
     public async Task Logs_de_emissao_e_verificacao_nao_contem_codigo_nem_endereco()
     {
         await using var banco = await servidor.CriarBancoComIdentidadeAsync();
@@ -279,6 +343,17 @@ public class EmissaoDeDesafiosTests(ServidorPostgres servidor)
         foreach (var proibido in new[] { codigo, Email, EmailNormalizado })
         {
             Assert.DoesNotContain(ambiente.Log.Linhas, l => l.Contains(proibido, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    /// <summary>Consulta a condição até ela ser verdadeira, com limite de tempo explícito (sem espera fixa).</summary>
+    private static async Task EsperarAteAsync(Func<Task<bool>> condicao)
+    {
+        using var limite = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        limite.CancelAfter(TimeSpan.FromSeconds(30));
+        while (!await condicao())
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(20), limite.Token);
         }
     }
 }

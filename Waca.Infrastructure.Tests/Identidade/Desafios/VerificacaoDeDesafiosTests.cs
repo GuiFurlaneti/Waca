@@ -380,5 +380,78 @@ public class VerificacaoDeDesafiosTests(ServidorPostgres servidor)
         Assert.Equal(antes, await banco.ConsultarAsync("SELECT \"AccessFailedCount\", \"LockoutEnd\", \"ConcurrencyStamp\" FROM identidade.\"AspNetUsers\""));
     }
 
+    [Fact]
+    public async Task Codigo_que_vence_enquanto_aguarda_o_bloqueio_da_linha_e_recusado()
+    {
+        await using var banco = await servidor.CriarBancoComIdentidadeAsync();
+        var ambiente = new AmbienteDeDesafios(banco);
+        var (emissao, codigo) = await ambiente.EmitirAsync(Email);
+        var pedido = new PedidoDeVerificacao(emissao.DesafioId!.Value, FinalidadeDesafio.Acesso, Email, codigo);
+        ambiente.Relogio.Avancar(TimeSpan.FromMinutes(10) - TimeSpan.FromSeconds(1));
+
+        // Transação A, em conexão própria, retém o bloqueio da linha sem alterá-la.
+        await using var conexaoA = new NpgsqlConnection(banco.ConnectionString);
+        await conexaoA.OpenAsync(Ct);
+        var transacaoA = await conexaoA.BeginTransactionAsync(Ct);
+
+        // Verificação B em outra conexão e transação.
+        await using var contextoB = banco.CriarContextoDeIdentidade();
+        await using var transacaoB = await contextoB.Database.BeginTransactionAsync(Ct);
+        var pidB = await contextoB.Database.SqlQuery<int>($"SELECT pg_backend_pid() AS \"Value\"").SingleAsync(Ct);
+        Assert.NotEqual(conexaoA.ProcessID, pidB);
+
+        Task<ResultadoDaVerificacao>? verificacao = null;
+        try
+        {
+            await using (var bloqueio = new NpgsqlCommand("SELECT id FROM identidade.desafios_acesso WHERE id = @id FOR UPDATE", conexaoA, transacaoA))
+            {
+                bloqueio.Parameters.AddWithValue("id", pedido.DesafioId);
+                Assert.NotNull(await bloqueio.ExecuteScalarAsync(Ct));
+            }
+
+            verificacao = ambiente.Verificador.VerificarEConsumirAsync(contextoB, pedido, Ct);
+
+            // B fica observavelmente parada no bloqueio de linha (espera do tipo Lock).
+            await EsperarAteAsync(async () => await banco.ContarAsync(
+                $"SELECT count(*) FROM pg_stat_activity WHERE pid = {pidB} AND wait_event_type = 'Lock'") == 1);
+            Assert.False(verificacao.IsCompleted);
+
+            // O código vence enquanto B espera; depois A libera o bloqueio sem consumir nada.
+            ambiente.Relogio.Avancar(TimeSpan.FromSeconds(2));
+            await transacaoA.RollbackAsync(Ct);
+
+            var resultado = await verificacao.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+            await transacaoB.CommitAsync(Ct);
+
+            Assert.False(resultado.Consumido);
+            Assert.Equal(MotivoDaRecusa.Expirado, resultado.Motivo);
+        }
+        finally
+        {
+            // Libera o bloqueio de A em qualquer caso e espera B terminar, com limite, antes de descartar B.
+            await transacaoA.DisposeAsync();
+            if (verificacao is not null)
+            {
+                await Task.WhenAny(verificacao, Task.Delay(TimeSpan.FromSeconds(30), CancellationToken.None));
+            }
+        }
+
+        var estado = (await ambiente.LerAsync(emissao.DesafioId))!;
+        Assert.True(estado.Aberto);
+        Assert.Null(estado.ConsumidoEm);
+        Assert.Equal(0, estado.Tentativas);
+    }
+
+    /// <summary>Consulta a condição até ela ser verdadeira, com limite de tempo explícito (sem espera fixa).</summary>
+    private static async Task EsperarAteAsync(Func<Task<bool>> condicao)
+    {
+        using var limite = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        limite.CancelAfter(TimeSpan.FromSeconds(30));
+        while (!await condicao())
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(20), limite.Token);
+        }
+    }
+
     private static string Errado(string codigo) => codigo == "00000000" ? "00000001" : "00000000";
 }
