@@ -110,6 +110,103 @@ namespace Waca.Infrastructure.Identidade.Migrations
                     b.ToTable("AspNetUserTokens", "identidade");
                 });
 
+            modelBuilder.Entity("Waca.Infrastructure.Identidade.Desafios.DesafioDeAcessoRegistro", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ConsumidoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consumido_em");
+
+                    b.Property<DateTimeOffset>("CriadoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("criado_em");
+
+                    b.Property<string>("EmailNormalizado")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("email_normalizado");
+
+                    b.Property<DateTimeOffset>("ExpiraEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expira_em");
+
+                    b.Property<string>("Finalidade")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("finalidade");
+
+                    b.Property<DateTimeOffset?>("InvalidadoEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("invalidado_em");
+
+                    b.Property<int>("MaxTentativas")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_tentativas");
+
+                    b.Property<Guid?>("PessoaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pessoa_id");
+
+                    b.Property<byte[]>("SegredoHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("segredo_hash");
+
+                    b.Property<int>("Tentativas")
+                        .HasColumnType("integer")
+                        .HasColumnName("tentativas");
+
+                    b.Property<short>("VersaoChave")
+                        .HasColumnType("smallint")
+                        .HasColumnName("versao_chave");
+
+                    b.HasKey("Id")
+                        .HasName("pk_desafios_acesso");
+
+                    b.HasIndex("ExpiraEm")
+                        .HasDatabaseName("ix_desafios_acesso_expira_em");
+
+                    b.HasIndex("EmailNormalizado", "Finalidade")
+                        .IsUnique()
+                        .HasDatabaseName("ux_desafios_acesso_aberto")
+                        .HasFilter("consumido_em IS NULL AND invalidado_em IS NULL");
+
+                    b.HasIndex("EmailNormalizado", "Finalidade", "CriadoEm")
+                        .HasDatabaseName("ix_desafios_acesso_cota");
+
+                    b.ToTable("desafios_acesso", "identidade", t =>
+                        {
+                            t.HasCheckConstraint("ck_desafios_acesso_consumo", "consumido_em IS NULL OR (consumido_em >= criado_em AND consumido_em < expira_em)");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_email", "email_normalizado <> ''");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_esgotado", "tentativas < max_tentativas OR consumido_em IS NOT NULL OR invalidado_em IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_estado_final", "consumido_em IS NULL OR invalidado_em IS NULL");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_finalidade", "finalidade IN ('Acesso', 'TrocaDeEmail')");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_id", "id <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_invalidacao", "invalidado_em IS NULL OR invalidado_em >= criado_em");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_pessoa", "(finalidade <> 'Acesso' OR pessoa_id IS NULL) AND (finalidade <> 'TrocaDeEmail' OR (pessoa_id IS NOT NULL AND pessoa_id <> '00000000-0000-0000-0000-000000000000'::uuid))");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_segredo", "octet_length(segredo_hash) = 32");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_tentativas", "max_tentativas BETWEEN 1 AND 10 AND tentativas BETWEEN 0 AND max_tentativas");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_validade", "expira_em > criado_em");
+
+                            t.HasCheckConstraint("ck_desafios_acesso_versao_chave", "versao_chave > 0");
+                        });
+                });
+
             modelBuilder.Entity("Waca.Infrastructure.Identidade.UsuarioWaca", b =>
                 {
                     b.Property<Guid>("Id")

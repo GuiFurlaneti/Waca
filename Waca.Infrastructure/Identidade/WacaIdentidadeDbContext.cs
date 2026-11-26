@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure;
 using Waca.Infrastructure.Identidade.Configuracoes;
+using Waca.Infrastructure.Identidade.Desafios;
 
 namespace Waca.Infrastructure.Identidade;
 
@@ -47,6 +48,9 @@ public sealed class WacaIdentidadeDbContext(DbContextOptions<WacaIdentidadeDbCon
 
     /// <inheritdoc />
     public DbSet<DataProtectionKey> DataProtectionKeys { get; set; } = null!;
+
+    /// <summary>Desafios de acesso por código (<c>identidade.desafios_acesso</c>).</summary>
+    internal DbSet<DesafioDeAcessoRegistro> DesafiosDeAcesso => Set<DesafioDeAcessoRegistro>();
 
     /// <summary>
     /// Configura o provedor PostgreSQL com o histórico de migrations próprio da identidade.
@@ -101,6 +105,7 @@ public sealed class WacaIdentidadeDbContext(DbContextOptions<WacaIdentidadeDbCon
         builder.HasDefaultSchema(Schema);
         base.OnModelCreating(builder);
         builder.ApplyConfiguration(new UsuarioWacaConfiguracao());
+        builder.ApplyConfiguration(new DesafioDeAcessoConfiguracao());
     }
 
     private static void ConfigurarNpgsql(NpgsqlDbContextOptionsBuilder npgsql) =>

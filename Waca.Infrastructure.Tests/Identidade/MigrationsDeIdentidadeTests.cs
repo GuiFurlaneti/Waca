@@ -15,6 +15,7 @@ public class MigrationsDeIdentidadeTests(ServidorPostgres servidor)
         "AspNetUsers",
         "DataProtectionKeys",
         "__EFMigrationsHistory",
+        "desafios_acesso",
     ];
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
