@@ -39,18 +39,20 @@ public class ModeloDeIdentidadeTests
 
         var entidades = contexto.Model.GetEntityTypes().ToDictionary(e => e.ClrType);
 
+        // MVP-04B: a tabela de desafios (tipo interno da Infrastructure) passou a fazer parte do modelo aprovado.
         Assert.Equal(
             [
-                typeof(DataProtectionKey),
-                typeof(IdentityUserClaim<Guid>),
-                typeof(IdentityUserLogin<Guid>),
-                typeof(IdentityUserToken<Guid>),
-                typeof(UsuarioWaca),
+                typeof(DataProtectionKey).FullName,
+                "Waca.Infrastructure.Identidade.Desafios.DesafioDeAcessoRegistro",
+                typeof(IdentityUserClaim<Guid>).FullName,
+                typeof(IdentityUserLogin<Guid>).FullName,
+                typeof(IdentityUserToken<Guid>).FullName,
+                typeof(UsuarioWaca).FullName,
             ],
-            entidades.Keys.OrderBy(t => t.Name, StringComparer.Ordinal).ThenBy(t => t.FullName, StringComparer.Ordinal));
+            entidades.Keys.OrderBy(t => t.Name, StringComparer.Ordinal).ThenBy(t => t.FullName, StringComparer.Ordinal).Select(t => t.FullName));
         Assert.All(entidades.Values, e => Assert.Equal("identidade", e.GetSchema()));
         Assert.Equal(
-            ["AspNetUserClaims", "AspNetUserLogins", "AspNetUserTokens", "AspNetUsers", "DataProtectionKeys"],
+            ["AspNetUserClaims", "AspNetUserLogins", "AspNetUserTokens", "AspNetUsers", "DataProtectionKeys", "desafios_acesso"],
             entidades.Values.Select(e => e.GetTableName()!).Order(StringComparer.Ordinal));
         Assert.DoesNotContain(entidades.Keys, t => t.Name.Contains("Role", StringComparison.Ordinal) || t.Name.Contains("Passkey", StringComparison.Ordinal));
     }
