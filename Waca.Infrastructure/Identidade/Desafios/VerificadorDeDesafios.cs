@@ -38,6 +38,9 @@ public sealed record ResultadoDaVerificacao(
 {
     internal static ResultadoDaVerificacao Recusado(MotivoDaRecusa motivo, int? tentativasRestantes = null) =>
         new(false, motivo, null, null, null, tentativasRestantes);
+
+    /// <summary>Não expõe o e-mail normalizado nem a pessoa.</summary>
+    public override string ToString() => $"ResultadoDaVerificacao(consumido: {Consumido}, motivo: {Motivo?.ToString() ?? "-"})";
 }
 
 /// <summary>

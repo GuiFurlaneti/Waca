@@ -13,6 +13,7 @@ namespace Waca.Infrastructure.Tests.Identidade.Desafios;
 public class MigrationDeDesafiosTests(ServidorPostgres servidor)
 {
     private const string MigrationInicial = "20261126132912_CriacaoInicialIdentidade";
+    private const string MigrationDosDesafios = "20261126155304_DesafiosDeAcesso";
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -92,7 +93,7 @@ public class MigrationDeDesafiosTests(ServidorPostgres servidor)
     }
 
     [Fact]
-    public async Task Historico_da_identidade_tem_as_duas_migrations_e_o_das_vaquinhas_nao_muda()
+    public async Task Historico_da_identidade_tem_as_migrations_em_ordem_e_o_das_vaquinhas_nao_muda()
     {
         await using var banco = await servidor.CriarBancoComIdentidadeAsync();
         await using var identidade = banco.CriarContextoDeIdentidade();
@@ -103,7 +104,8 @@ public class MigrationDeDesafiosTests(ServidorPostgres servidor)
         var historicoPublico = (await banco.ConsultarAsync("SELECT \"MigrationId\" FROM public.\"__EFMigrationsHistory\" ORDER BY 1"))
             .Select(l => (string)l[0]!).ToArray();
 
-        Assert.Equal(2, historico.Length);
+        // MVP-04C1 acrescentou a migration de sessões; a contagem passa a vir do contexto.
+        Assert.Equal(identidade.Database.GetMigrations().Count(), historico.Length);
         Assert.Equal(MigrationInicial, historico[0]);
         Assert.EndsWith("_DesafiosDeAcesso", historico[1]);
         Assert.Equal(identidade.Database.GetMigrations(), historico);
@@ -124,7 +126,11 @@ public class MigrationDeDesafiosTests(ServidorPostgres servidor)
 
         Assert.Equal(identidadeAntes, await MigrationsDeIdentidadeTests.DescreverSchemaAsync(banco, "identidade"));
         Assert.Equal(publicAntes, await MigrationsDeIdentidadeTests.DescreverSchemaAsync(banco, "public"));
-        Assert.Equal(2, await banco.ContarAsync("SELECT count(*) FROM identidade.\"__EFMigrationsHistory\""));
+
+        await using var contexto = banco.CriarContextoDeIdentidade();
+        Assert.Equal(
+            contexto.Database.GetMigrations().Count(),
+            await banco.ContarAsync("SELECT count(*) FROM identidade.\"__EFMigrationsHistory\""));
     }
 
     [Fact]
@@ -150,7 +156,11 @@ public class MigrationDeDesafiosTests(ServidorPostgres servidor)
         var schemaAntes = await DescreverTabelasExistentesAsync(banco);
         var publicAntes = await MigrationsDeIdentidadeTests.DescreverSchemaAsync(banco, "public");
 
-        await banco.AplicarMigrationsDeIdentidadeAsync();
+        // Aplica exatamente a migration dos desafios (as posteriores têm testes próprios).
+        await using (var contexto = banco.CriarContextoDeIdentidade())
+        {
+            await contexto.GetService<IMigrator>().MigrateAsync(MigrationDosDesafios, Ct);
+        }
 
         Assert.Equal(usuariosAntes, await LinhasAsync(banco, "SELECT * FROM identidade.\"AspNetUsers\""));
         Assert.Equal(chavesAntes, await LinhasAsync(banco, "SELECT * FROM identidade.\"DataProtectionKeys\""));
