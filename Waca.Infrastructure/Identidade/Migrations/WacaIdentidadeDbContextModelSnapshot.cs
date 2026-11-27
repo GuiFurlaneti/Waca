@@ -207,6 +207,44 @@ namespace Waca.Infrastructure.Identidade.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Waca.Infrastructure.Identidade.Sessoes.SessaoRegistro", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CriadaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("criada_em");
+
+                    b.Property<DateTimeOffset>("ExpiraAbsolutaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expira_absoluta_em");
+
+                    b.Property<Guid>("PessoaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pessoa_id");
+
+                    b.Property<DateTimeOffset?>("RevogadaEm")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revogada_em");
+
+                    b.HasKey("Id")
+                        .HasName("pk_sessoes");
+
+                    b.HasIndex("PessoaId")
+                        .HasDatabaseName("ix_sessoes_pessoa_id");
+
+                    b.ToTable("sessoes", "identidade", t =>
+                        {
+                            t.HasCheckConstraint("ck_sessoes_id", "id <> '00000000-0000-0000-0000-000000000000'::uuid");
+
+                            t.HasCheckConstraint("ck_sessoes_revogacao", "revogada_em IS NULL OR revogada_em >= criada_em");
+
+                            t.HasCheckConstraint("ck_sessoes_validade", "expira_absoluta_em > criada_em");
+                        });
+                });
+
             modelBuilder.Entity("Waca.Infrastructure.Identidade.UsuarioWaca", b =>
                 {
                     b.Property<Guid>("Id")
@@ -312,6 +350,16 @@ namespace Waca.Infrastructure.Identidade.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Waca.Infrastructure.Identidade.Sessoes.SessaoRegistro", b =>
+                {
+                    b.HasOne("Waca.Infrastructure.Identidade.UsuarioWaca", null)
+                        .WithMany()
+                        .HasForeignKey("PessoaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_sessoes_pessoa");
                 });
 #pragma warning restore 612, 618
         }

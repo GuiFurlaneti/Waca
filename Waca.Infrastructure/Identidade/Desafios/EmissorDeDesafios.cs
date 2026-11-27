@@ -9,7 +9,11 @@ namespace Waca.Infrastructure.Identidade.Desafios;
 /// <param name="Finalidade">Finalidade do desafio.</param>
 /// <param name="Email">Endereço informado, sem normalização.</param>
 /// <param name="PessoaId">Pessoa vinculada: obrigatória para <see cref="FinalidadeDesafio.TrocaDeEmail"/> e ausente para <see cref="FinalidadeDesafio.Acesso"/>.</param>
-public sealed record SolicitacaoDeEmissao(FinalidadeDesafio Finalidade, string Email, Guid? PessoaId = null);
+public sealed record SolicitacaoDeEmissao(FinalidadeDesafio Finalidade, string Email, Guid? PessoaId = null)
+{
+    /// <summary>Não expõe o endereço nem a pessoa (evita vazamento por log automático de objetos).</summary>
+    public override string ToString() => $"SolicitacaoDeEmissao({Finalidade})";
+}
 
 /// <summary>Resultado da emissão. Nunca contém o código.</summary>
 public enum SituacaoDaEmissao

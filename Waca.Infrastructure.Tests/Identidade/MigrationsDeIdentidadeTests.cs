@@ -16,6 +16,7 @@ public class MigrationsDeIdentidadeTests(ServidorPostgres servidor)
         "DataProtectionKeys",
         "__EFMigrationsHistory",
         "desafios_acesso",
+        "sessoes",
     ];
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -207,6 +208,7 @@ public class MigrationsDeIdentidadeTests(ServidorPostgres servidor)
                 ("identidade.\"AspNetUserClaims\"", "identidade.\"AspNetUsers\""),
                 ("identidade.\"AspNetUserLogins\"", "identidade.\"AspNetUsers\""),
                 ("identidade.\"AspNetUserTokens\"", "identidade.\"AspNetUsers\""),
+                ("identidade.sessoes", "identidade.\"AspNetUsers\""),
             ],
             chaves.Select(c => ((string)c[0]!, (string)c[1]!)).Order());
     }
