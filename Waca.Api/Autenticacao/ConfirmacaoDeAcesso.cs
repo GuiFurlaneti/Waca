@@ -121,15 +121,15 @@ public sealed class ConfirmacaoDeAcesso(
                 return ResultadoDaConfirmacao.Recusada;
             }
 
+            if (string.IsNullOrEmpty(conta.SecurityStamp))
+            {
+                ExigirSucesso(await usuarios.UpdateSecurityStampAsync(conta), "gerar o security stamp");
+            }
+
             if (!conta.EmailConfirmed)
             {
                 conta.EmailConfirmed = true;
                 ExigirSucesso(await usuarios.UpdateAsync(conta), "confirmar o e-mail");
-            }
-
-            if (string.IsNullOrEmpty(conta.SecurityStamp))
-            {
-                ExigirSucesso(await usuarios.UpdateSecurityStampAsync(conta), "gerar o security stamp");
             }
         }
 
